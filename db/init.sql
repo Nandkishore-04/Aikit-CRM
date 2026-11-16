@@ -1,12 +1,12 @@
--- Mock CRM schema + synthetic seed data. Runs once on an empty volume.
+-- schema + fake seed data. only runs when the volume is empty
 
 CREATE TABLE tenants (
     id   TEXT PRIMARY KEY,
     name TEXT NOT NULL
 );
 
--- SECURITY: we store only the SHA-256 of each API token, never the token itself.
--- A DB dump/backup therefore does not leak usable tokens.
+-- only the sha256 of the token is stored, not the token.
+-- so a backup file doesn't contain working tokens
 CREATE TABLE users (
     id               SERIAL PRIMARY KEY,
     tenant_id        TEXT NOT NULL REFERENCES tenants(id),
@@ -14,9 +14,9 @@ CREATE TABLE users (
     api_token_sha256 TEXT NOT NULL UNIQUE
 );
 
--- DEDUP: one lead per (tenant, phone) and per (tenant, email).
--- Postgres UNIQUE allows many NULLs, so leads with no phone or no email are fine.
--- Uniqueness is per tenant: the same customer may legitimately exist in both tenants.
+-- dedup: one lead per (tenant, phone) and one per (tenant, email).
+-- unique allows multiple NULLs so missing phone/email is ok.
+-- per tenant, so the same person can be a lead in both tenants
 CREATE TABLE leads (
     id           SERIAL PRIMARY KEY,
     tenant_id    TEXT NOT NULL REFERENCES tenants(id),
@@ -30,9 +30,9 @@ CREATE TABLE leads (
     CONSTRAINT leads_tenant_email_uniq UNIQUE (tenant_id, email_norm)
 );
 
--- IDEMPOTENCY: an event_id is processed at most once per tenant.
--- PK is (tenant_id, event_id) rather than event_id alone so tenant B re-using an
--- event_id can never be answered with tenant A's lead.
+-- each event_id is processed once per tenant.
+-- PK includes tenant_id, otherwise tenant B sending the same event_id
+-- would get tenant A's lead back
 CREATE TABLE processed_events (
     tenant_id   TEXT NOT NULL REFERENCES tenants(id),
     event_id    TEXT NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE processed_events (
     PRIMARY KEY (tenant_id, event_id)
 );
 
--- Facts the answer engine may cite. value NULL = unknown (never guessed).
+-- facts we can quote in answers. value NULL = unknown
 CREATE TABLE property_facts (
     id            SERIAL PRIMARY KEY,
     tenant_id     TEXT NOT NULL REFERENCES tenants(id),
@@ -67,26 +67,26 @@ CREATE TABLE alerts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ---------- Seed (synthetic only) ----------
+-- ---- seed data (fake) ----
 INSERT INTO tenants (id, name) VALUES
     ('tenant_a', 'Tenant A Realty (test)'),
     ('tenant_b', 'Tenant B Homes (test)');
 
--- Plain-text test tokens are documented in README / scripts; only hashes stored here.
--- sha256() is built into Postgres 11+.
+-- test tokens are listed in the README, only hashes go in the table
+-- (sha256() is built in since pg 11)
 INSERT INTO users (tenant_id, role, api_token_sha256) VALUES
     ('tenant_a', 'admin', encode(sha256('test-token-a-admin'::bytea), 'hex')),
     ('tenant_a', 'agent', encode(sha256('test-token-a-agent'::bytea), 'hex')),
     ('tenant_b', 'admin', encode(sha256('test-token-b-admin'::bytea), 'hex')),
     ('tenant_b', 'agent', encode(sha256('test-token-b-agent'::bytea), 'hex'));
 
--- P1: price known, availability unknown (NULL) -> must hand off, never guess.
+-- P1: price known, availability unknown -> should hand off
 INSERT INTO property_facts (tenant_id, property_code, field, value, source) VALUES
     ('tenant_a', 'P1', 'price',        'AED 1,000,000', 'brief:P1-listing-sheet'),
     ('tenant_a', 'P1', 'availability', NULL,            'brief:P1-listing-sheet'),
     ('tenant_b', 'P1', 'price',        'AED 1,000,000', 'brief:P1-listing-sheet'),
     ('tenant_b', 'P1', 'availability', NULL,            'brief:P1-listing-sheet');
 
--- One tenant_b lead so the cross-tenant read test has a real target.
+-- a tenant_b lead for the cross-tenant test
 INSERT INTO leads (tenant_id, name, phone_norm, email_norm, last_message) VALUES
     ('tenant_b', 'Tenant B Seed Customer', '971559999999', 'seed.b@example.test', 'seed');

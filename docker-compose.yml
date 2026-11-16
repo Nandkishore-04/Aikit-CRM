@@ -1,4 +1,4 @@
-# All images pinned to exact tags (needed for rollback, see README).
+# pinned image tags so rollback is possible (see README)
 services:
   postgres:
     image: postgres:16
@@ -8,9 +8,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - crm_pgdata:/var/lib/postgresql/data
-      # Runs only on first start (empty volume).
+      # only runs on first start
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    # No "ports:" on purpose: Postgres is reachable only inside the compose network.
+    # no ports on purpose, only reachable inside the docker network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 2s
@@ -35,11 +35,11 @@ services:
   n8n:
     image: n8nio/n8n:1.70.0
     environment:
-      # n8n keeps its own data in SQLite on its own volume (simplest option).
+      # n8n uses its default sqlite on its own volume
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      # Read by the error workflow via $env to authenticate to POST /alerts.
+      # error workflow reads this via $env to call POST /alerts
       INTERNAL_ALERT_TOKEN: ${INTERNAL_ALERT_TOKEN}
-      N8N_SECURE_COOKIE: "false"        # local http only
+      N8N_SECURE_COOKIE: "false"        # local http
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"

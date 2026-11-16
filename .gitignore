@@ -1,6 +1,6 @@
-# Secrets never go into git (see README "Secrets")
+# secrets
 .env
-# Runtime artefacts
+# generated stuff
 backups/*.sql
 __pycache__/
 *.pyc

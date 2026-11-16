@@ -1,4 +1,4 @@
-"""Unit tests for the normaliser. Run: python -m unittest (or pytest)."""
+# normaliser tests - run with pytest or python -m unittest
 import os
 import sys
 import unittest
