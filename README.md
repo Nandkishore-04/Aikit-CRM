@@ -102,6 +102,10 @@ curl -s -X POST http://localhost:5678/webhook/enquiry \
   -d '{"event_id":"demo-1","name":"Jane","phone":"050 123 4567","email":"jane@example.test","message":"How much is P1?"}' | jq
 ```
 
+### Manual / visual testing
+
+Step-by-step Postman + n8n UI guide: **[TESTING.md](TESTING.md)**.
+
 ### Postman (optional)
 
 Import `postman/AiKit-CRM.postman_collection.json` and `postman/AiKit-local.postman_environment.json`
