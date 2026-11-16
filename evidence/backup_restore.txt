@@ -1,5 +1,5 @@
-1) pg_dump -> backups/backup_20261116_162213.sql
-   15393 bytes
+1) pg_dump -> backups/backup_20261116_162610.sql
+   12256 bytes
 2) start clean container 'postgres-restore' (same pinned image, no named volume, not on app network)
    tables in fresh instance before restore: 0 (must be 0)
 3) restore
@@ -7,11 +7,11 @@
    table              original restored
    tenants                   2        2
    users                     4        4
-   leads                    11       11
-   processed_events         24       24
+   leads                     3        3
+   processed_events          6        6
    property_facts            4        4
-   handoffs                  6        6
-   alerts                    5        5
-   leads content md5: original=9736dde917e46e734a772fb81cecc87b restored=9736dde917e46e734a772fb81cecc87b
+   handoffs                  1        1
+   alerts                    1        1
+   leads content md5: original=c865ab54de91bf825686a041828d5137 restored=c865ab54de91bf825686a041828d5137
 5) cleanup: removing postgres-restore (trap)
-BACKUP/RESTORE: PASS  (backups/backup_20261116_162213.sql)
+BACKUP/RESTORE: PASS  (backups/backup_20261116_162610.sql)

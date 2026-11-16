@@ -4,6 +4,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Wait for the n8n server to finish starting first: on a fresh volume it runs DB
+# migrations, and a concurrent CLI import fails with SQLITE_BUSY.
+wait_for_n8n() {
+  for i in $(seq 1 90); do
+    curl -sf http://localhost:5678/healthz >/dev/null && return 0
+    sleep 1
+  done
+  echo "n8n did not come up"; exit 1
+}
+wait_for_n8n
+sleep 2
+
 # Error workflow first so the enquiry workflow's settings.errorWorkflow points at a real id.
 docker compose exec -T n8n n8n import:workflow --input=/workflows/error_alert.json
 docker compose exec -T n8n n8n import:workflow --input=/workflows/enquiry.json

@@ -108,23 +108,23 @@ Fresh start: `docker compose down -v` (deletes both volumes), then the commands 
 `./scripts/run_evidence.sh` output (`evidence/results.txt`), against the live stack:
 
 ```
-=== AiKit evidence run 2026-11-16T16:22:06+05:30  commit f96510a ===
+=== AiKit evidence run 2026-11-16T16:26:03+05:30  commit bf07245 ===
 
 PASS  0  normaliser unit tests  | 5 passed in 0.01s
 PASS  1  logged-out denied (401)  | HTTP 401 {"detail":"missing bearer token"}
 PASS  2  non-admin denied (403)  | HTTP 403 {"detail":"forbidden for role agent"}
-PASS  3  cross-tenant denied (404)  | B lead 10: tenant_b=200, tenant_a=404 {"detail":"lead not found"}
+PASS  3  cross-tenant denied (404)  | B lead 2: tenant_b=200, tenant_a=404 {"detail":"lead not found"}
 PASS  4  duplicate event deduped  | 2nd response duplicate=true, lead rows=1
-PASS  5  reformatted phone -> same lead  | '0594826326' vs '+971 59 482 6326' -> lead 11 (expected 11), rows=1
+PASS  5  reformatted phone -> same lead  | '0594826563' vs '+971 59 482 6563' -> lead 3 (expected 3), rows=1
 PASS  6  price answered with citation  | {"answer":"The price of P1 is AED 1,000,000.","citation":{"fact_id":1,"source":"brief:P1-listing-sheet","property_code":"P1","field":"price"}}
-PASS  7  availability -> no guess + handoff  | answer='I don't have confirmed information on that. I've passed your question to a colleague who will get back to you.' handoff_id=6 reason=no_confirmed_availability
+PASS  7  availability -> no guess + handoff  | answer='I don't have confirmed information on that. I've passed your question to a colleague who will get back to you.' handoff_id=1 reason=no_confirmed_availability
       mock-crm log for this request:
-        2026-11-16 10:52:09,647 WARNING fail injection armed: next 5 upserts will 500
-        2026-11-16 10:52:09,749 WARNING upsert attempt 1 -> injected 500 (remaining=4)
-        2026-11-16 10:52:10,782 WARNING upsert attempt 2 -> injected 500 (remaining=3)
-        2026-11-16 10:52:11,812 WARNING upsert attempt 3 -> injected 500 (remaining=2)
-      latest alert: 5 | n8n:AiKit - Enquiry to CRM | Execution 28 failed at node "Upsert Lead": The service was not able to process your request
-PASS  8  500 -> bounded retry (3) + alert  | caller HTTP 500 after 2197ms, attempts=3, unused failures=2, alerts 4->5
+        2026-11-16 10:56:06,605 WARNING fail injection armed: next 5 upserts will 500
+        2026-11-16 10:56:06,705 WARNING upsert attempt 1 -> injected 500 (remaining=4)
+        2026-11-16 10:56:07,830 WARNING upsert attempt 2 -> injected 500 (remaining=3)
+        2026-11-16 10:56:08,862 WARNING upsert attempt 3 -> injected 500 (remaining=2)
+      latest alert: 1 | n8n:AiKit - Enquiry to CRM | Execution 6 failed at node "Upsert Lead": The service was not able to process your request
+PASS  8  500 -> bounded retry (3) + alert  | caller HTTP 500 after 2282ms, attempts=3, unused failures=2, alerts 0->1
 PASS  9  transient 500 -> retry recovers  | HTTP 200, attempts=2, answer='The price of P1 is AED 1,000,000.'
 
 === SUMMARY: 10 passed, 0 failed ===
@@ -150,8 +150,8 @@ with `ON_ERROR_STOP=1`, compares the row counts of all 7 tables plus an md5 of t
 removes the container (trap, so it is removed even on failure).
 
 ```
-1) pg_dump -> backups/backup_20261116_162213.sql
-   15393 bytes
+1) pg_dump -> backups/backup_20261116_162610.sql
+   12256 bytes
 2) start clean container 'postgres-restore' (same pinned image, no named volume, not on app network)
    tables in fresh instance before restore: 0 (must be 0)
 3) restore
@@ -159,14 +159,14 @@ removes the container (trap, so it is removed even on failure).
    table              original restored
    tenants                   2        2
    users                     4        4
-   leads                    11       11
-   processed_events         24       24
+   leads                     3        3
+   processed_events          6        6
    property_facts            4        4
-   handoffs                  6        6
-   alerts                    5        5
-   leads content md5: original=9736dde917e46e734a772fb81cecc87b restored=9736dde917e46e734a772fb81cecc87b
+   handoffs                  1        1
+   alerts                    1        1
+   leads content md5: original=c865ab54de91bf825686a041828d5137 restored=c865ab54de91bf825686a041828d5137
 5) cleanup: removing postgres-restore (trap)
-BACKUP/RESTORE: PASS  (backups/backup_20261116_162213.sql)
+BACKUP/RESTORE: PASS  (backups/backup_20261116_162610.sql)
 ```
 
 Scope: this covers the **CRM database**. n8n's state is reproducible from git (`n8n/workflows/*.json`
@@ -258,7 +258,7 @@ What I reviewed and verified myself:
 - **Behaviour,** by running the stack and the scripts: `run_evidence.sh` 10/10 PASS, `backup_restore.sh` PASS
   (output above). I checked the n8n retry count in the mock-crm logs and the alert row in Postgres.
 - Issues found and fixed during live testing: n8n 1.70 `import:workflow` needs a JSON array; the n8n
-  readiness probe was changed to `/healthz` so it doesn't create spurious alerts; the evidence log
+  readiness probe was changed to `/healthz` so it doesn't create spurious alerts; on a fresh volume the CLI import raced n8n's first-start migrations (`SQLITE_BUSY`), so the import script now waits for `/healthz` first; the evidence log
   excerpt was narrowed to the injected-failure lines.
 
 Exact commit: see `git log -1` (the final commit of this repo).
