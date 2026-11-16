@@ -132,6 +132,8 @@ Fresh start: `docker compose down -v` (deletes both volumes), then the commands 
 
 `./scripts/run_evidence.sh` output (`evidence/results.txt`), against the live stack:
 
+> The header shows `commit 40ca55b`. That is commit `aff6ac8` in this repo: the commit messages were reworded before the first push, and the code is identical.
+
 ```
 === AiKit evidence run 2026-11-16T17:45:50+05:30  commit 40ca55b ===
 
