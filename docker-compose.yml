@@ -1,0 +1,59 @@
+# All images pinned to exact tags (needed for rollback, see README).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - crm_pgdata:/var/lib/postgresql/data
+      # Runs only on first start (empty volume).
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    # No "ports:" on purpose: Postgres is reachable only inside the compose network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  mock-crm:
+    build: ./mock-crm
+    image: aikit-mock-crm:0.1.0
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      INTERNAL_ALERT_TOKEN: ${INTERNAL_ALERT_TOKEN}
+      ENABLE_FAIL_INJECTION: ${ENABLE_FAIL_INJECTION:-false}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:1.70.0
+    environment:
+      # n8n keeps its own data in SQLite on its own volume (simplest option).
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Read by the error workflow via $env to authenticate to POST /alerts.
+      INTERNAL_ALERT_TOKEN: ${INTERNAL_ALERT_TOKEN}
+      N8N_SECURE_COOKIE: "false"        # local http only
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      WEBHOOK_URL: http://localhost:5678/
+      GENERIC_TIMEZONE: Asia/Dubai
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    depends_on:
+      - mock-crm
+    restart: unless-stopped
+
+volumes:
+  crm_pgdata:
+  n8n_data:

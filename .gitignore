@@ -1,0 +1,7 @@
+# Secrets never go into git (see README "Secrets")
+.env
+# Runtime artefacts
+backups/*.sql
+__pycache__/
+*.pyc
+.pytest_cache/
