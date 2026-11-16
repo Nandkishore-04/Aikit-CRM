@@ -47,6 +47,7 @@ stored facts with a citation**; anything unknown, conflicting or a request for a
 | `scripts/import_n8n.sh` | import + activate workflows |
 | `scripts/run_evidence.sh` | all evidence cases → `evidence/results.txt` |
 | `scripts/backup_restore.sh` | backup → clean-instance restore → verify |
+| `postman/` | Postman collection + environment for the same cases |
 
 ## Assumptions
 
@@ -99,6 +100,21 @@ Manual example:
 curl -s -X POST http://localhost:5678/webhook/enquiry \
   -H 'Authorization: Bearer test-token-a-agent' -H 'Content-Type: application/json' \
   -d '{"event_id":"demo-1","name":"Jane","phone":"050 123 4567","email":"jane@example.test","message":"How much is P1?"}' | jq
+```
+
+### Postman (optional)
+
+Import `postman/AiKit-CRM.postman_collection.json` and `postman/AiKit-local.postman_environment.json`
+into the Postman **desktop app** (the web app can't reach `localhost` without the Postman Agent), select
+the **AiKit local** environment, and run folders `0 Setup` → `8-9` in order with the **Collection Runner**.
+That's 20 requests with 32 assertions. Each run uses fresh event ids and phone numbers. Skip the `Extras` folder in the runner.
+
+Headless, same collection (verified: 32/32 assertions pass):
+```bash
+docker run --rm --network host -v "$PWD/postman:/etc/newman:ro" postman/newman:6.1.3 \
+  run AiKit-CRM.postman_collection.json -e AiKit-local.postman_environment.json \
+  --folder "0 Setup" --folder "1-3 Security denials" --folder "4-7 Enquiry flow via n8n" \
+  --folder "8-9 Forced 500, bounded retry, recovery"
 ```
 
 Fresh start: `docker compose down -v` (deletes both volumes), then the commands above.

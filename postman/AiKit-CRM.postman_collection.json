@@ -1,0 +1,763 @@
+{
+  "info": {
+    "_postman_id": "662a8da9-cb91-5a9f-81c8-3cceb2482860",
+    "name": "AiKit CRM evidence",
+    "description": "Run folders 0 to 8-9 in order with the Collection Runner. Synthetic tokens only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0 Setup",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{crm}}/health",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh ids/phone per run so the collection can be re-run any time.",
+                  "const n = String(Date.now()).slice(-7);",
+                  "pm.collectionVariables.set(\"run\", n);",
+                  "pm.collectionVariables.set(\"phoneLocal\", \"058\" + n);                                   // 058XXXXXXX",
+                  "pm.collectionVariables.set(\"phoneIntl\", \"+971 58 \" + n.slice(0,3) + \" \" + n.slice(3));  // same number",
+                  "pm.collectionVariables.set(\"dupEvent\", \"pm-dup-\" + n);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"CRM healthy\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "1-3 Security denials",
+      "item": [
+        {
+          "name": "1 Logged out -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{crm}}/admin/leads",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 without token\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 Non-admin on /admin/leads -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{crm}}/admin/leads",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 for agent\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2b Admin on /admin/leads -> 200 (control)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAdmin}}"
+              }
+            ],
+            "url": "{{crm}}/admin/leads",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 for admin\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"only own tenant\", () => pm.expect(pm.response.json().tenant).to.eql(\"tenant_a\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3a Tenant B creates a lead",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBAgent}}"
+              }
+            ],
+            "url": "{{crm}}/leads/upsert",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-b-{{run}}\",\n  \"name\": \"Tenant B customer\",\n  \"phone\": \"0559{{run}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"bLeadId\", pm.response.json().lead.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3b Tenant B reads own lead -> 200 (control)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBAgent}}"
+              }
+            ],
+            "url": "{{crm}}/leads/{{bLeadId}}",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 own tenant\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3c Tenant A reads Tenant B lead -> 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAdmin}}"
+              }
+            ],
+            "url": "{{crm}}/leads/{{bLeadId}}",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 cross-tenant (no existence leak)\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "4-7 Enquiry flow via n8n",
+      "item": [
+        {
+          "name": "4a Enquiry (new event) -> cited price",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"{{dupEvent}}\",\n  \"name\": \"Jane Postman\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"email\": \"jane.{{run}}@example.test\",\n  \"message\": \"How much is P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"not duplicate\", () => pm.expect(j.duplicate).to.eql(false));",
+                  "pm.collectionVariables.set(\"leadId\", j.lead_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4b Same event again -> duplicate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"{{dupEvent}}\",\n  \"name\": \"Jane Postman\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"email\": \"jane.{{run}}@example.test\",\n  \"message\": \"How much is P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"duplicate: true\", () => pm.expect(j.duplicate).to.eql(true));",
+                  "pm.test(\"same lead\", () => pm.expect(String(j.lead_id)).to.eql(String(pm.collectionVariables.get(\"leadId\"))));",
+                  "pm.test(\"no second answer/handoff\", () => pm.expect(j.handoff).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5 Reformatted phone, new event -> same lead",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-fmt-{{run}}\",\n  \"name\": \"Jane P.\",\n  \"phone\": \"{{phoneIntl}}\",\n  \"message\": \"How much is P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"not duplicate event\", () => pm.expect(j.duplicate).to.eql(false));",
+                  "pm.test(\"same lead id (deduped by phone)\", () => pm.expect(String(j.lead_id)).to.eql(String(pm.collectionVariables.get(\"leadId\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6 Price question -> AED 1,000,000 + citation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-price-{{run}}\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"message\": \"What is the price of P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"answer has price\", () => pm.expect(j.answer).to.include(\"AED 1,000,000\"));",
+                  "pm.test(\"has citation\", () => { pm.expect(j.citation.fact_id).to.be.a(\"number\"); pm.expect(j.citation.source).to.be.a(\"string\"); });",
+                  "pm.test(\"no handoff\", () => pm.expect(j.handoff).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7 Availability -> no guess + handoff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-avail-{{run}}\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"message\": \"Is P1 still available?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"does not guess\", () => pm.expect(j.answer).to.include(\"don't have confirmed information\"));",
+                  "pm.test(\"no citation\", () => pm.expect(j.citation).to.eql(null));",
+                  "pm.test(\"handoff created\", () => { pm.expect(j.handoff).to.eql(true); pm.expect(j.handoff_id).to.be.a(\"number\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7b Ask for a human -> handoff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-human-{{run}}\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"message\": \"Can I talk to a human please?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"handoff\", () => pm.expect(pm.response.json().handoff).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "8-9 Forced 500, bounded retry, recovery",
+      "item": [
+        {
+          "name": "8a Arm fail-next=5 (TEST ONLY)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAdmin}}"
+              }
+            ],
+            "url": "{{crm}}/_debug/fail-next?count=5",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"armed\", () => pm.expect(pm.response.json().fail_next).to.eql(5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8b Enquiry -> 500 after 3 tries",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-fail-{{run}}\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"message\": \"How much is P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"caller gets 500\", () => pm.response.to.have.status(500));",
+                  "pm.test(\"took ~2s (3 tries, 1s apart)\", () => pm.expect(pm.response.responseTime).to.be.above(1800));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8c Stats -> exactly 3 attempts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAdmin}}"
+              }
+            ],
+            "url": "{{crm}}/_debug/stats",
+            "description": "Alert row: check n8n Executions of 'AiKit - Error Alert' or: docker compose exec postgres psql -U crm -d crm -c 'select * from alerts order by id desc limit 1'"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"exactly 3 attempts (bounded)\", () => pm.expect(j.upsert_attempts).to.eql(3));",
+                  "pm.test(\"2 injected failures unused\", () => pm.expect(j.fail_next).to.eql(2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9a Arm fail-next=1 (TEST ONLY)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAdmin}}"
+              }
+            ],
+            "url": "{{crm}}/_debug/fail-next?count=1",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"armed\", () => pm.expect(pm.response.json().fail_next).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9b Enquiry -> retry recovers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook/enquiry",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-recover-{{run}}\",\n  \"phone\": \"{{phoneLocal}}\",\n  \"message\": \"How much is P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 after retry\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"answer returned\", () => pm.expect(pm.response.json().answer).to.include(\"AED 1,000,000\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9c Stats -> 2 attempts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAdmin}}"
+              }
+            ],
+            "url": "{{crm}}/_debug/stats",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"1 failure + 1 success\", () => pm.expect(pm.response.json().upsert_attempts).to.eql(2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9d Agent cannot use debug -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{crm}}/_debug/fail-next?count=1",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "Extras (manual)",
+      "item": [
+        {
+          "name": "n8n TEST webhook (click 'Test workflow' in n8n first)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{n8n}}/webhook-test/enquiry",
+            "description": "Not part of the run. Watch nodes light up in the n8n editor.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-ui-{{$timestamp}}\",\n  \"name\": \"UI Demo\",\n  \"phone\": \"050 123 4567\",\n  \"message\": \"How much is P1?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": []
+        },
+        {
+          "name": "Direct CRM upsert (bypasses n8n)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAAgent}}"
+              }
+            ],
+            "url": "{{crm}}/leads/upsert",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"pm-direct-{{$timestamp}}\",\n  \"name\": \"Direct\",\n  \"phone\": \"050 999 0000\",\n  \"email\": \"direct@example.test\",\n  \"message\": \"hi\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": []
+        }
+      ],
+      "description": "Skip these in the Collection Runner."
+    }
+  ],
+  "variable": [
+    {
+      "key": "run",
+      "value": ""
+    },
+    {
+      "key": "phoneLocal",
+      "value": ""
+    },
+    {
+      "key": "phoneIntl",
+      "value": ""
+    },
+    {
+      "key": "dupEvent",
+      "value": ""
+    },
+    {
+      "key": "bLeadId",
+      "value": ""
+    },
+    {
+      "key": "leadId",
+      "value": ""
+    }
+  ]
+}
