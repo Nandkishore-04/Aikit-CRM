@@ -1,20 +1,20 @@
-=== AiKit evidence run 2026-11-16T16:37:14+05:30  commit 8c08f80 ===
+=== AiKit evidence run 2026-11-16T17:45:50+05:30  commit 40ca55b ===
 
 PASS  0  normaliser unit tests  | 5 passed in 0.01s
 PASS  1  logged-out denied (401)  | HTTP 401 {"detail":"missing bearer token"}
 PASS  2  non-admin denied (403)  | HTTP 403 {"detail":"forbidden for role agent"}
-PASS  3  cross-tenant denied (404)  | B lead 5: tenant_b=200, tenant_a=404 {"detail":"lead not found"}
+PASS  3  cross-tenant denied (404)  | B lead 3: tenant_b=200, tenant_a=404 {"detail":"lead not found"}
 PASS  4  duplicate event deduped  | 2nd response duplicate=true, lead rows=1
-PASS  5  reformatted phone -> same lead  | '0594827234' vs '+971 59 482 7234' -> lead 6 (expected 6), rows=1
+PASS  5  reformatted phone -> same lead  | '0594831350' vs '+971 59 483 1350' -> lead 4 (expected 4), rows=1
 PASS  6  price answered with citation  | {"answer":"The price of P1 is AED 1,000,000.","citation":{"fact_id":1,"source":"brief:P1-listing-sheet","property_code":"P1","field":"price"}}
 PASS  7  availability -> no guess + handoff  | answer='I don't have confirmed information on that. I've passed your question to a colleague who will get back to you.' handoff_id=2 reason=no_confirmed_availability
       mock-crm log for this request:
-        2026-11-16 11:07:18,113 WARNING fail injection armed: next 5 upserts will 500
-        2026-11-16 11:07:18,205 WARNING upsert attempt 1 -> injected 500 (remaining=4)
-        2026-11-16 11:07:19,302 WARNING upsert attempt 2 -> injected 500 (remaining=3)
-        2026-11-16 11:07:20,331 WARNING upsert attempt 3 -> injected 500 (remaining=2)
-      latest alert: 2 | n8n:AiKit - Enquiry to CRM | Execution 15 failed at node "Upsert Lead": The service was not able to process your request
-PASS  8  500 -> bounded retry (3) + alert  | caller HTTP 500 after 2251ms, attempts=3, unused failures=2, alerts 1->2
+        2026-11-16 12:15:51,868 WARNING fail injection armed: next 5 upserts will 500
+        2026-11-16 12:15:51,921 WARNING upsert attempt 1 -> injected 500 (remaining=4)
+        2026-11-16 12:15:52,941 WARNING upsert attempt 2 -> injected 500 (remaining=3)
+        2026-11-16 12:15:53,963 WARNING upsert attempt 3 -> injected 500 (remaining=2)
+      latest alert: 2 | n8n:AiKit - Enquiry to CRM | Execution 14 failed at node "Upsert Lead": The service was not able to process your request
+PASS  8  500 -> bounded retry (3) + alert  | caller HTTP 500 after 2116ms, attempts=3, unused failures=2, alerts 1->2
 PASS  9  transient 500 -> retry recovers  | HTTP 200, attempts=2, answer='The price of P1 is AED 1,000,000.'
 
 === SUMMARY: 10 passed, 0 failed ===
