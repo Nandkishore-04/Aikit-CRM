@@ -1,63 +1,65 @@
-{
-  "id": "AikitErrAlert001",
-  "name": "AiKit - Error Alert",
-  "active": false,
-  "settings": {
-    "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner"
-  },
-  "pinData": {},
-  "nodes": [
-    {
-      "id": "0b6f6a1e-3333-4a00-9000-000000000001",
-      "name": "Error Trigger",
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        0
-      ],
-      "parameters": {}
+[
+  {
+    "id": "AikitErrAlert001",
+    "name": "AiKit - Error Alert",
+    "active": false,
+    "settings": {
+      "executionOrder": "v1",
+      "callerPolicy": "workflowsFromSameOwner"
     },
-    {
-      "id": "0b6f6a1e-3333-4a00-9000-000000000002",
-      "name": "Write Alert",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        240,
-        0
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "http://mock-crm:8000/alerts",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
+    "pinData": {},
+    "nodes": [
+      {
+        "id": "0b6f6a1e-3333-4a00-9000-000000000001",
+        "name": "Error Trigger",
+        "type": "n8n-nodes-base.errorTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "0b6f6a1e-3333-4a00-9000-000000000002",
+        "name": "Write Alert",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          240,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "http://mock-crm:8000/alerts",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Internal-Token",
+                "value": "={{ $env.INTERNAL_ALERT_TOKEN }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ source: 'n8n:' + $json.workflow.name, message: 'Execution ' + $json.execution.id + ' failed at node \"' + $json.execution.lastNodeExecuted + '\": ' + ($json.execution.error && $json.execution.error.message) }) }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Error Trigger": {
+        "main": [
+          [
             {
-              "name": "X-Internal-Token",
-              "value": "={{ $env.INTERNAL_ALERT_TOKEN }}"
+              "node": "Write Alert",
+              "type": "main",
+              "index": 0
             }
           ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ source: 'n8n:' + $json.workflow.name, message: 'Execution ' + $json.execution.id + ' failed at node \"' + $json.execution.lastNodeExecuted + '\": ' + ($json.execution.error && $json.execution.error.message) }) }}",
-        "options": {}
+        ]
       }
     }
-  ],
-  "connections": {
-    "Error Trigger": {
-      "main": [
-        [
-          {
-            "node": "Write Alert",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
   }
-}
+]

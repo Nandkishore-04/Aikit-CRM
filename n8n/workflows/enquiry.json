@@ -1,208 +1,210 @@
-{
-  "id": "AikitEnquiry0001",
-  "name": "AiKit - Enquiry to CRM",
-  "active": false,
-  "settings": {
-    "executionOrder": "v1",
-    "errorWorkflow": "AikitErrAlert001",
-    "saveDataErrorExecution": "all",
-    "saveDataSuccessExecution": "all"
-  },
-  "pinData": {},
-  "nodes": [
-    {
-      "id": "0b6f6a1e-1111-4a00-9000-000000000001",
-      "name": "Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        0,
-        0
-      ],
-      "webhookId": "5f1c2d3e-aaaa-4bbb-8ccc-000000000001",
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "enquiry",
-        "responseMode": "responseNode",
-        "options": {}
-      }
+[
+  {
+    "id": "AikitEnquiry0001",
+    "name": "AiKit - Enquiry to CRM",
+    "active": false,
+    "settings": {
+      "executionOrder": "v1",
+      "errorWorkflow": "AikitErrAlert001",
+      "saveDataErrorExecution": "all",
+      "saveDataSuccessExecution": "all"
     },
-    {
-      "id": "0b6f6a1e-1111-4a00-9000-000000000002",
-      "name": "Upsert Lead",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        240,
-        0
-      ],
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 1000,
-      "parameters": {
-        "method": "POST",
-        "url": "http://mock-crm:8000/leads/upsert",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ $('Webhook').item.json.headers.authorization }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ event_id: $json.body.event_id, name: $json.body.name, phone: $json.body.phone, email: $json.body.email, message: $json.body.message }) }}",
-        "options": {
-          "timeout": 10000
+    "pinData": {},
+    "nodes": [
+      {
+        "id": "0b6f6a1e-1111-4a00-9000-000000000001",
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "5f1c2d3e-aaaa-4bbb-8ccc-000000000001",
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "enquiry",
+          "responseMode": "responseNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "0b6f6a1e-1111-4a00-9000-000000000002",
+        "name": "Upsert Lead",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          240,
+          0
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "parameters": {
+          "method": "POST",
+          "url": "http://mock-crm:8000/leads/upsert",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ $('Webhook').item.json.headers.authorization }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ event_id: $json.body.event_id, name: $json.body.name, phone: $json.body.phone, email: $json.body.email, message: $json.body.message }) }}",
+          "options": {
+            "timeout": 10000
+          }
+        }
+      },
+      {
+        "id": "0b6f6a1e-1111-4a00-9000-000000000003",
+        "name": "Is Duplicate?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          480,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose"
+            },
+            "conditions": [
+              {
+                "id": "7d0e0f10-2222-4c00-9000-000000000001",
+                "leftValue": "={{ $json.duplicate }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "0b6f6a1e-1111-4a00-9000-000000000004",
+        "name": "Respond Duplicate",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          720,
+          -120
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify({ lead_id: $json.lead.id, duplicate: true, answer: null, citation: null, handoff: false, note: 'event already processed' }) }}",
+          "options": {}
+        }
+      },
+      {
+        "id": "0b6f6a1e-1111-4a00-9000-000000000005",
+        "name": "Get Answer",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          720,
+          120
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "http://mock-crm:8000/answer",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ $('Webhook').item.json.headers.authorization }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ lead_id: $json.lead.id, question: $('Webhook').item.json.body.message || '' }) }}",
+          "options": {
+            "timeout": 10000
+          }
+        }
+      },
+      {
+        "id": "0b6f6a1e-1111-4a00-9000-000000000006",
+        "name": "Respond Answer",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          960,
+          120
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify({ lead_id: $('Upsert Lead').item.json.lead.id, duplicate: false, answer: $json.answer, citation: $json.citation, handoff: $json.handoff, handoff_id: $json.handoff_id }) }}",
+          "options": {}
         }
       }
-    },
-    {
-      "id": "0b6f6a1e-1111-4a00-9000-000000000003",
-      "name": "Is Duplicate?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        480,
-        0
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
             {
-              "id": "7d0e0f10-2222-4c00-9000-000000000001",
-              "leftValue": "={{ $json.duplicate }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
+              "node": "Upsert Lead",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upsert Lead": {
+        "main": [
+          [
+            {
+              "node": "Is Duplicate?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is Duplicate?": {
+        "main": [
+          [
+            {
+              "node": "Respond Duplicate",
+              "type": "main",
+              "index": 0
             }
           ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "0b6f6a1e-1111-4a00-9000-000000000004",
-      "name": "Respond Duplicate",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        720,
-        -120
-      ],
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ lead_id: $json.lead.id, duplicate: true, answer: null, citation: null, handoff: false, note: 'event already processed' }) }}",
-        "options": {}
-      }
-    },
-    {
-      "id": "0b6f6a1e-1111-4a00-9000-000000000005",
-      "name": "Get Answer",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        720,
-        120
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "http://mock-crm:8000/answer",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
+          [
             {
-              "name": "Authorization",
-              "value": "={{ $('Webhook').item.json.headers.authorization }}"
+              "node": "Get Answer",
+              "type": "main",
+              "index": 0
             }
           ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ lead_id: $json.lead.id, question: $('Webhook').item.json.body.message || '' }) }}",
-        "options": {
-          "timeout": 10000
-        }
+        ]
+      },
+      "Get Answer": {
+        "main": [
+          [
+            {
+              "node": "Respond Answer",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
-    },
-    {
-      "id": "0b6f6a1e-1111-4a00-9000-000000000006",
-      "name": "Respond Answer",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        960,
-        120
-      ],
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ lead_id: $('Upsert Lead').item.json.lead.id, duplicate: false, answer: $json.answer, citation: $json.citation, handoff: $json.handoff, handoff_id: $json.handoff_id }) }}",
-        "options": {}
-      }
-    }
-  ],
-  "connections": {
-    "Webhook": {
-      "main": [
-        [
-          {
-            "node": "Upsert Lead",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Upsert Lead": {
-      "main": [
-        [
-          {
-            "node": "Is Duplicate?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Is Duplicate?": {
-      "main": [
-        [
-          {
-            "node": "Respond Duplicate",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Get Answer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Answer": {
-      "main": [
-        [
-          {
-            "node": "Respond Answer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
   }
-}
+]
