@@ -104,7 +104,7 @@ curl -s -X POST http://localhost:5678/webhook/enquiry \
 
 ### Manual / visual testing
 
-Step-by-step Postman + n8n UI guide: **[TESTING.md](TESTING.md)**.
+Step-by-step copy-paste terminal guide (+ n8n UI): **[TESTING.md](TESTING.md)**.
 
 ### Postman (optional)
 

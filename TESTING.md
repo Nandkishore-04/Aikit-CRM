@@ -1,119 +1,126 @@
-# Manual test guide (Postman + n8n UI)
+# Test guide: copy and paste into the terminal
 
-Every step has the same layout: **Send** (or **Do**), **Expect**, and sometimes **Look**.
-Do them in order. Each step takes about 30 seconds.
-
-**How to set the token in Postman:** open the **Authorization** tab, choose **Type: Bearer Token**, and paste the token.
-**How to send a body:** open the **Body** tab, choose **raw**, then **JSON**, and paste the JSON.
-
-| Token | Who |
-|---|---|
-| `test-token-a-admin` | Tenant A, admin |
-| `test-token-a-agent` | Tenant A, agent (not admin) |
-| `test-token-b-agent` | Tenant B, agent |
+Run everything in **one terminal** (the VS Code terminal is fine: **Ctrl + `**), **in order, once**.
+Each test has a **copy block** and the result you should **expect**.
+The ids (`e1`–`e6`, lead `2`, handoff `1`) assume a fresh start (Step 0).
 
 ---
 
-## Step 0: Start clean (terminal)
+## Step 0: Clean start (do this before recording)
 
-**Do**
+**Copy:**
+```bash
+newgrp docker
+```
+(It prints nothing; it just gives this terminal Docker access.)
+
+**Copy:**
 ```bash
 cd ~/Aikit-CRM
-docker compose down -v
-docker compose up -d --build
-./scripts/import_n8n.sh
+docker compose down -v && docker compose up -d --build && ./scripts/import_n8n.sh
 ```
-**Expect:** the last line says `n8n is up: POST http://localhost:5678/webhook/enquiry`.
-
-A clean start matters because it makes the ids below predictable: tenant B's seed lead is **id 1**, and your first new lead is **id 2**.
+**Expect:** the last line is `n8n is up: POST http://localhost:5678/webhook/enquiry`
 
 ---
 
-## Step 1: Health check
+## Step 1: Setup shortcuts (paste once)
 
-**Send:** `GET http://localhost:8000/health`, with no token.
-
-**Expect:** `200` and `{"status":"ok"}`
-
----
-
-## Test 1: Logged out is blocked
-
-**Send:** `GET http://localhost:8000/admin/leads`, with **no token** (Authorization tab: *No Auth*).
-
-**Expect:** `401` and `{"detail":"missing bearer token"}`
-
----
-
-## Test 2: Non-admin is blocked
-
-**Send:** `GET http://localhost:8000/admin/leads`, with token `test-token-a-agent`.
-
-**Expect:** `403` and `{"detail":"forbidden for role agent"}`
-
-**Control:** the same request with `test-token-a-admin` returns `200` and a list containing only `tenant_a` leads.
-
----
-
-## Test 3: Another tenant's data is blocked
-
-Lead **1** belongs to **tenant B**.
-
-**Send:** `GET http://localhost:8000/leads/1`, with token `test-token-b-agent`.
-
-**Expect:** `200`. Tenant B can see its own lead.
-
-**Send:** `GET http://localhost:8000/leads/1`, with token `test-token-a-admin`.
-
-**Expect:** `404` and `{"detail":"lead not found"}`. Tenant A can't see it, and can't even tell that it exists.
-
----
-
-## Test 4: Duplicate event is ignored
-
-**Send:** `POST http://localhost:5678/webhook/enquiry`, with token `test-token-a-agent` and this body:
-```json
-{
-  "event_id": "e1",
-  "name": "Jane",
-  "phone": "050 123 4567",
-  "email": "jane@example.test",
-  "message": "How much is P1?"
-}
+**Copy:**
+```bash
+CRM=http://localhost:8000; N8N=http://localhost:5678/webhook/enquiry; J="Content-Type: application/json"
+AA="Authorization: Bearer test-token-a-admin"; AG="Authorization: Bearer test-token-a-agent"; BG="Authorization: Bearer test-token-b-agent"
+clear; echo "ready"
 ```
-**Expect:** `200`, `"duplicate": false`, `"lead_id": 2`, and the price answer.
+**Expect:** `ready`
 
-**Send exactly the same request again** (same `event_id: "e1"`).
-
-**Expect:** `200`, `"duplicate": true`, the same `lead_id: 2`, and `"answer": null`. Nothing was processed twice.
+| Shortcut | Means |
+|---|---|
+| `$CRM` | mock CRM at `http://localhost:8000` (stands in for Zoho Bigin) |
+| `$N8N` | n8n enquiry webhook at `http://localhost:5678/webhook/enquiry` |
+| `$AA` | tenant A **admin** token |
+| `$AG` | tenant A **agent** (non-admin) token |
+| `$BG` | tenant B agent token |
 
 ---
 
-## Test 5: Same customer, phone written differently, updates the same lead
+## Test 1: Logged out → 401
 
-**Send:** `POST http://localhost:5678/webhook/enquiry`, with token `test-token-a-agent` and this body:
-```json
-{
-  "event_id": "e2",
-  "name": "Jane D",
-  "phone": "+971 50 123 4567",
-  "message": "How much is P1?"
-}
+**Copy:**
+```bash
+clear; curl -s -w "  -> HTTP %{http_code}\n" $CRM/admin/leads
 ```
-**Expect:** `"duplicate": false` but the **same `"lead_id": 2`**. `+971 50…` and `050…` are recognised as one customer.
-
-**Look (optional):** `GET http://localhost:8000/admin/leads` with `test-token-a-admin` shows **one** Jane, with `phone_norm: "971501234567"` and name updated to "Jane D".
+**Expect:** `{"detail":"missing bearer token"}  -> HTTP 401`
 
 ---
 
-## Test 6: Price question gets a cited answer
+## Test 2: Non-admin → 403
 
-**Send:** `POST http://localhost:5678/webhook/enquiry`, with token `test-token-a-agent` and this body:
-```json
-{ "event_id": "e3", "phone": "050 123 4567", "message": "What is the price of P1?" }
+**Copy:**
+```bash
+clear; curl -s -w "  -> HTTP %{http_code}\n" -H "$AG" $CRM/admin/leads
+```
+**Expect:** `{"detail":"forbidden for role agent"}  -> HTTP 403`
+
+---
+
+## Test 3: Cross-tenant → 404
+
+Lead 1 belongs to **tenant B**. Tenant B can read it; tenant A gets 404 (not 403, so tenant A can't even learn the lead exists).
+
+**Copy:**
+```bash
+clear
+curl -s -o /dev/null -w "tenant B reads lead 1 -> HTTP %{http_code}\n" -H "$BG" $CRM/leads/1
+curl -s -w "  -> HTTP %{http_code}\n" -H "$AA" $CRM/leads/1
 ```
 **Expect:**
-```json
+```
+tenant B reads lead 1 -> HTTP 200
+{"detail":"lead not found"}  -> HTTP 404
+```
+
+---
+
+## Test 4: Same event sent twice → one lead, `duplicate: true`
+
+**Copy:**
+```bash
+clear
+curl -s -H "$AG" -H "$J" -d '{"event_id":"e1","name":"Jane","phone":"050 123 4567","email":"jane@example.test","message":"How much is P1?"}' $N8N | jq -c '{lead_id,duplicate}'
+curl -s -H "$AG" -H "$J" -d '{"event_id":"e1","name":"Jane","phone":"050 123 4567","email":"jane@example.test","message":"How much is P1?"}' $N8N | jq -c '{lead_id,duplicate}'
+```
+**Expect:**
+```
+{"lead_id":2,"duplicate":false}
+{"lead_id":2,"duplicate":true}
+```
+
+---
+
+## Test 5: Same customer, phone written differently → existing lead updated
+
+**Copy:**
+```bash
+clear
+curl -s -H "$AG" -H "$J" -d '{"event_id":"e2","name":"Jane D","phone":"+971 50 123 4567","message":"How much is P1?"}' $N8N | jq -c '{lead_id,duplicate}'
+curl -s -H "$AA" $CRM/admin/leads | jq -c '.leads[] | {id,name,phone_norm}'
+```
+**Expect:** a new event (`duplicate:false`) but the **same lead 2**, and only **one** Jane, with her name updated:
+```
+{"lead_id":2,"duplicate":false}
+{"id":2,"name":"Jane D","phone_norm":"971501234567"}
+```
+
+---
+
+## Test 6: Price question → AED 1,000,000 + citation
+
+**Copy:**
+```bash
+clear; curl -s -H "$AG" -H "$J" -d '{"event_id":"e3","phone":"050 123 4567","message":"What is the price of P1?"}' $N8N | jq
+```
+**Expect:**
+```
 "answer": "The price of P1 is AED 1,000,000.",
 "citation": { "fact_id": 1, "source": "brief:P1-listing-sheet", "property_code": "P1", "field": "price" },
 "handoff": false
@@ -121,119 +128,109 @@ Lead **1** belongs to **tenant B**.
 
 ---
 
-## Test 7: Unknown availability, so no guess and a human handoff
+## Test 7: Availability → no guess + handoff row
 
-**Send:** `POST http://localhost:5678/webhook/enquiry`, with token `test-token-a-agent` and this body:
-```json
-{ "event_id": "e4", "phone": "050 123 4567", "message": "Is P1 still available?" }
-```
-**Expect:** `"answer": "I don't have confirmed information on that..."`, `"citation": null`, `"handoff": true` and a `"handoff_id"` number.
-
-**Bonus:** `"message": "Can I talk to a human?"` (with `event_id` `"e4b"`) also returns `"handoff": true`.
-
-**Look (terminal):**
+**Copy:**
 ```bash
-docker compose exec postgres psql -U crm -d crm -c "select id, lead_id, reason, summary from handoffs"
+clear
+curl -s -H "$AG" -H "$J" -d '{"event_id":"e4","phone":"050 123 4567","message":"Is P1 still available?"}' $N8N | jq
+docker compose exec -T postgres psql -U crm -d crm -c "select id, lead_id, reason from handoffs"
 ```
-You should see the handoff row with `reason = no_confirmed_availability`.
+**Expect:**
+```
+"answer": "I don't have confirmed information on that. ...",
+"citation": null,
+"handoff": true,
+"handoff_id": 1
+
+ id | lead_id |          reason
+----+---------+---------------------------
+  1 |       2 | no_confirmed_availability
+```
 
 ---
 
-## Test 8: CRM fails, n8n retries exactly 3 times, then an alert
+## Test 8: Forced 500 → exactly 3 attempts → alert row
 
-**8a. Make the CRM fail the next 5 calls (test-only switch)**
+`fail-next=5` makes the CRM fail its next 5 calls (test-only switch). n8n retries **3** times, gives up, and its error workflow writes an alert.
 
-**Send:** `POST http://localhost:8000/_debug/fail-next?count=5`, with token `test-token-a-admin`.
-
-**Expect:** `{"fail_next":5,"upsert_attempts":0}`
-
-**8b. Send an enquiry**
-
-**Send:** `POST http://localhost:5678/webhook/enquiry`, with token `test-token-a-agent` and this body:
-```json
-{ "event_id": "e5", "phone": "050 123 4567", "message": "How much is P1?" }
-```
-**Expect:** `500` and `{"message":"Error in workflow"}`. Postman's response time is about **2 seconds** (3 tries, 1 second apart).
-
-**8c. Count the attempts**
-
-**Send:** `GET http://localhost:8000/_debug/stats`, with token `test-token-a-admin`.
-
-**Expect:** `{"fail_next":2,"upsert_attempts":3}`. Only **3** attempts were made, and 2 of the 5 injected failures were never used, so the retry stopped by itself.
-
-**8d. See it in n8n (browser)**
-
-**Do:** open http://localhost:5678 (first time only: create an owner account, which stays on your machine).
-1. Open **AiKit - Enquiry to CRM** and go to the **Executions** tab. The newest run is **red**. Click it: the **Upsert Lead** node is red.
-2. Go back, open **AiKit - Error Alert**, then **Executions**. There's a run at the same time. Click **Write Alert** to see the alert it sent.
-
-**8e. See the alert row and the 3 attempts (terminal)**
+**Copy:**
 ```bash
-docker compose exec postgres psql -U crm -d crm -c "select id, source, message from alerts"
-docker compose logs mock-crm | grep "injected 500" | tail -3
+clear
+curl -s -X POST -H "$AA" "$CRM/_debug/fail-next?count=5"; echo
+curl -s -w "  -> HTTP %{http_code} in %{time_total}s\n" -H "$AG" -H "$J" -d '{"event_id":"e5","phone":"050 123 4567","message":"How much is P1?"}' $N8N
+sleep 2
+curl -s -H "$AA" $CRM/_debug/stats; echo
+docker compose logs mock-crm | grep "injected 500"
+docker compose exec -T postgres psql -U crm -d crm -c "select id, source, message from alerts"
 ```
-**Expect:** one alert, `Execution … failed at node "Upsert Lead"`, and exactly **3** "injected 500" log lines.
+**Expect:**
+```
+{"fail_next":5,"upsert_attempts":0}
+{"message":"Error in workflow"}  -> HTTP 500 in 2.3s
+{"fail_next":2,"upsert_attempts":3}          <- only 3 tries; 2 failures never used = bounded
+... upsert attempt 1 -> injected 500 (remaining=4)
+... upsert attempt 2 -> injected 500 (remaining=3)
+... upsert attempt 3 -> injected 500 (remaining=2)
+ 1 | n8n:AiKit - Enquiry to CRM | Execution 6 failed at node "Upsert Lead": ...
+```
+(The execution number may differ.)
 
 ---
 
-## Test 9: One failure, then the retry succeeds
+## Test 9: fail-next=1 → retry recovers
 
-**Send:** `POST http://localhost:8000/_debug/fail-next?count=1`, with token `test-token-a-admin`.
-
-**Send:** `POST http://localhost:5678/webhook/enquiry`, with token `test-token-a-agent` and this body:
-```json
-{ "event_id": "e6", "phone": "050 123 4567", "message": "How much is P1?" }
-```
-**Expect:** `200` and the normal price answer, after about 1 second.
-
-**Send:** `GET http://localhost:8000/_debug/stats`, with token `test-token-a-admin`.
-
-**Expect:** `"upsert_attempts": 2`: 1 failed and 1 succeeded. In n8n, **Executions** shows a new **green** run.
-
----
-
-## Test 10: Backup, then restore into a clean database (terminal)
-
-**Do**
+**Copy:**
 ```bash
-./scripts/backup_restore.sh
+clear
+curl -s -X POST -H "$AA" "$CRM/_debug/fail-next?count=1"; echo
+curl -s -H "$AG" -H "$J" -d '{"event_id":"e6","phone":"050 123 4567","message":"How much is P1?"}' $N8N | jq -c '{lead_id,answer}'
+curl -s -H "$AA" $CRM/_debug/stats; echo
 ```
-**Expect**
-- `tables in fresh instance before restore: 0`, so the target really was empty
-- a table where every row has **original = restored**
-- `BACKUP/RESTORE: PASS` as the last line
+**Expect:**
+```
+{"fail_next":1,"upsert_attempts":0}
+{"lead_id":2,"answer":"The price of P1 is AED 1,000,000."}
+{"fail_next":0,"upsert_attempts":2}          <- 1 failed + 1 succeeded
+```
 
 ---
 
-## Test 11: Everything automatically (terminal)
+## Test 10: Backup → restore into a clean database
 
-**Do**
+**Copy:**
 ```bash
-./scripts/run_evidence.sh
+clear; ./scripts/backup_restore.sh
 ```
-**Expect:** `=== SUMMARY: 10 passed, 0 failed ===`, saved to `evidence/results.txt`.
+**Expect:** `tables in fresh instance before restore: 0`, every table has original = restored, and the last line is `BACKUP/RESTORE: PASS`
 
 ---
 
-## Bonus: Watch n8n run node by node
+## Test 11: Everything again, automated
 
-1. In n8n, open **AiKit - Enquiry to CRM** and click **Test workflow**.
-2. In Postman, send to the **test** URL: `POST http://localhost:5678/webhook-test/enquiry`, with token `test-token-a-agent` and this body:
-   ```json
-   { "event_id": "ui-1", "name": "Demo", "phone": "052 555 0000", "message": "How much is P1?" }
-   ```
-3. The nodes turn green one by one. Click any node to see its input and output.
-
-Test runs don't trigger the error-alert workflow. That's why Test 8 uses the normal `/webhook/` URL.
+**Copy:**
+```bash
+clear; ./scripts/run_evidence.sh
+```
+**Expect:** `=== SUMMARY: 10 passed, 0 failed ===` (saved to `evidence/results.txt`)
 
 ---
 
-## If something looks wrong
+## Optional: Show it in the n8n UI
 
-| You see | Why | Fix |
-|---|---|---|
-| `"duplicate": true` when you didn't expect it | that `event_id` was already used | use a new id (e.g. `e7`), or redo Step 0 |
-| `lead_id` isn't 2 | not a clean start | doesn't matter; check it stays the **same** in Tests 4 and 5 |
-| `404` from `localhost:5678/webhook/enquiry` | workflow not active | run `./scripts/import_n8n.sh` |
-| Postman "Could not send request" | web Postman can't reach localhost | use the Postman desktop app |
-| `permission denied ... docker.sock` | terminal not in the docker group yet | run `newgrp docker` |
+Open http://localhost:5678 and create an owner account (local only, any details).
+- **AiKit - Enquiry to CRM → Executions:** the green runs are Tests 4–7 and 9; the **red** run is Test 8, with **Upsert Lead** red.
+- **AiKit - Error Alert → Executions:** the run that wrote the Test 8 alert. Click **Write Alert**.
+
+---
+
+## If something goes wrong
+
+| You see | Fix |
+|---|---|
+| `permission denied ... docker.sock` | run `newgrp docker`, then paste Step 1 again |
+| `curl: (3) URL rejected` / empty `$CRM` | you're in a new terminal; paste Step 1 again |
+| `"duplicate": true` where it shouldn't be, or the ids don't match | you've already run that test; redo Step 0, then Step 1 |
+| `404` from the webhook | run `./scripts/import_n8n.sh` |
+
+A Postman collection with the same cases is in `postman/` (see the README).
