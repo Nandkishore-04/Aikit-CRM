@@ -1,0 +1,20 @@
+=== AiKit evidence run 2026-11-16T16:20:25+05:30  commit efd62de ===
+
+PASS  0  normaliser unit tests  | 5 passed in 0.01s
+PASS  1  logged-out denied (401)  | HTTP 401 {"detail":"missing bearer token"}
+PASS  2  non-admin denied (403)  | HTTP 403 {"detail":"forbidden for role agent"}
+PASS  3  cross-tenant denied (404)  | B lead 8: tenant_b=200, tenant_a=404 {"detail":"lead not found"}
+PASS  4  duplicate event deduped  | 2nd response duplicate=true, lead rows=1
+PASS  5  reformatted phone -> same lead  | '0594826225' vs '+971 59 482 6225' -> lead 9 (expected 9), rows=1
+PASS  6  price answered with citation  | {"answer":"The price of P1 is AED 1,000,000.","citation":{"fact_id":1,"source":"brief:P1-listing-sheet","property_code":"P1","field":"price"}}
+PASS  7  availability -> no guess + handoff  | answer='I don't have confirmed information on that. I've passed your question to a colleague who will get back to you.' handoff_id=5 reason=no_confirmed_availability
+      mock-crm log for this request:
+        2026-11-16 10:50:28,538 WARNING fail injection armed: next 5 upserts will 500
+        2026-11-16 10:50:28,640 WARNING upsert attempt 1 -> injected 500 (remaining=4)
+        2026-11-16 10:50:29,669 WARNING upsert attempt 2 -> injected 500 (remaining=3)
+        2026-11-16 10:50:30,697 WARNING upsert attempt 3 -> injected 500 (remaining=2)
+      latest alert: 4 | n8n:AiKit - Enquiry to CRM | Execution 20 failed at node "Upsert Lead": The service was not able to process your request
+PASS  8  500 -> bounded retry (3) + alert  | caller HTTP 500 after 2183ms, attempts=3, unused failures=2, alerts 3->4
+PASS  9  transient 500 -> retry recovers  | HTTP 200, attempts=2, answer='The price of P1 is AED 1,000,000.'
+
+=== SUMMARY: 10 passed, 0 failed ===
