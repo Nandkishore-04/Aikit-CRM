@@ -12,29 +12,34 @@ stored facts with a citation**; anything unknown, conflicting or a request for a
 **handoff** row for a human. CRM failures are retried a **bounded** number of times, then an
 **alert** is written.
 
-```
-  client (tenant token)
-        │  POST /webhook/enquiry   Authorization: Bearer <token>
-        ▼
- ┌──────────────────────────── n8n 1.70.0 (:5678) ───────────────────────────┐
- │ Webhook ─► Upsert Lead ─► Is Duplicate? ─yes─► Respond {duplicate:true}   │
- │            (retry: 3 tries,      │                                        │
- │             1000 ms apart)       no                                       │
- │                                  ▼                                        │
- │                             Get Answer ─► Respond {answer,citation,handoff}│
- │                                                                           │
- │ on any failure ─► Error workflow: Error Trigger ─► POST /alerts           │
- └──────────────┬───────────────────────────────────────────┬────────────────┘
-                │ http://mock-crm:8000 (Docker network)      │ X-Internal-Token
-                ▼                                            ▼
- ┌──────────────────── mock-crm (FastAPI, :8000) ──────────────────────────┐
- │ auth: token → user → tenant (401 / 403 / 404)                           │
- │ /leads/upsert  /leads/{id}  /admin/leads  /answer  /handoffs  /alerts   │
- │ /_debug/fail-next  /_debug/stats   (TEST ONLY, flag-gated)              │
- └──────────────────────────────┬──────────────────────────────────────────┘
-                                ▼
-            postgres:16 (not exposed to host, named volume)
-   tenants · users · leads · processed_events · property_facts · handoffs · alerts
+```mermaid
+flowchart TB
+    client["Client / enquiry source<br/>Authorization: Bearer &lt;tenant token&gt;"]
+
+    subgraph N8N["n8n 1.70.0 :5678"]
+        direction LR
+        wh["Webhook<br/>POST /webhook/enquiry"] --> up["Upsert Lead<br/>retry: 3 tries, 1000 ms"]
+        up --> dup{"Is Duplicate?"}
+        dup -- yes --> r1["Respond<br/>duplicate: true"]
+        dup -- no --> ans["Get Answer"] --> r2["Respond<br/>answer + citation + handoff"]
+        err["Error workflow<br/>Error Trigger → Write Alert"]
+    end
+
+    subgraph CRM["mock-crm (FastAPI) :8000 — stands in for Zoho Bigin"]
+        auth["Auth: token → user → tenant<br/>401 / 403 / 404"]
+        api["/leads/upsert · /leads/{id} · /admin/leads<br/>/answer · /handoffs · /alerts"]
+        dbg["/_debug/fail-next · /_debug/stats<br/>(TEST ONLY, flag + admin)"]
+        auth --> api
+    end
+
+    db[("postgres:16 (not exposed to host)<br/>tenants · users · leads · processed_events<br/>property_facts · handoffs · alerts")]
+
+    client --> wh
+    up -- "http://mock-crm:8000" --> auth
+    ans --> auth
+    up -. "retries exhausted" .-> err
+    err -- "X-Internal-Token" --> api
+    api --> db
 ```
 
 | Path | What |
