@@ -1,7 +1,10 @@
 """Mock CRM (stands in for Zoho Bigin). Local, synthetic data only."""
 import hashlib
+import hmac
 import logging
 import os
+import re
+import threading
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -11,6 +14,9 @@ from pydantic import BaseModel
 from app.normalise import normalise_email, normalise_phone
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+INTERNAL_ALERT_TOKEN = os.environ["INTERNAL_ALERT_TOKEN"]
+# TEST-ONLY switch for the forced-500 demo. Defaults to off.
+ENABLE_FAIL_INJECTION = os.environ.get("ENABLE_FAIL_INJECTION", "false").lower() == "true"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("mock-crm")
@@ -74,6 +80,24 @@ def get_lead_in_tenant(conn, lead_id: int, tenant_id: str) -> dict:
     return lead
 
 
+# ---------------------------------------------------------------- TEST-ONLY failure injection
+# In-memory state (single uvicorn worker). Lets us prove n8n retries are bounded.
+_fail_lock = threading.Lock()
+_fail_state = {"fail_next": 0, "upsert_attempts": 0}
+
+
+def record_attempt_or_fail():
+    """Count every upsert attempt; return HTTP 500 while fail_next > 0."""
+    with _fail_lock:
+        _fail_state["upsert_attempts"] += 1
+        attempt = _fail_state["upsert_attempts"]
+        if _fail_state["fail_next"] > 0:
+            _fail_state["fail_next"] -= 1
+            log.warning("upsert attempt %s -> injected 500 (remaining=%s)", attempt, _fail_state["fail_next"])
+            raise HTTPException(status_code=500, detail="injected failure (test only)")
+    log.info("upsert attempt %s", attempt)
+
+
 # ---------------------------------------------------------------- endpoints
 @app.get("/health")
 def health():
@@ -92,6 +116,7 @@ class UpsertIn(BaseModel):
 
 @app.post("/leads/upsert")
 def upsert_lead(body: UpsertIn, user: dict = Depends(any_user)):
+    record_attempt_or_fail()   # TEST-ONLY failure injection (no-op unless armed)
     tenant = user["tenant_id"]
     phone = normalise_phone(body.phone)
     email = normalise_email(body.email)
@@ -168,3 +193,134 @@ def admin_list_leads(user: dict = Depends(admin_only)):
             "SELECT * FROM leads WHERE tenant_id = %s ORDER BY id", (user["tenant_id"],)
         ).fetchall()
     return {"tenant": user["tenant_id"], "leads": rows}
+
+
+# ---------------------------------------------------------------- answers + handoff
+class AnswerIn(BaseModel):
+    lead_id: int
+    question: str
+
+
+HUMAN_WORDS = ("human", "real person", "agent", "someone", "call me", "speak to", "talk to")
+AVAILABILITY_WORDS = ("availab", "vacant", "still for sale", "sold", "free to view")
+PRICE_WORDS = ("price", "cost", "how much", "asking")
+NO_INFO = "I don't have confirmed information on that. I've passed your question to a colleague who will get back to you."
+
+
+def create_handoff(conn, tenant: str, lead_id: int, reason: str, summary: str) -> dict:
+    return conn.execute(
+        "INSERT INTO handoffs (tenant_id, lead_id, reason, summary) VALUES (%s, %s, %s, %s) RETURNING *",
+        (tenant, lead_id, reason, summary[:500]),
+    ).fetchone()
+
+
+@app.post("/answer")
+def answer(body: AnswerIn, user: dict = Depends(any_user)):
+    """Rule-based answer (no LLM). SECURITY: the question is treated purely as data:
+    it is only lower-cased and keyword-matched, never executed, templated into SQL
+    (all SQL is parameterised) or allowed to change which tenant/facts are read.
+    We only ever return a value that exists in property_facts, with its citation.
+    """
+    tenant = user["tenant_id"]
+    q = body.question.lower()
+    m = re.search(r"\bp(\d+)\b", q)                  # e.g. "P1"; default P1
+    code = f"P{m.group(1)}" if m else "P1"
+
+    if any(w in q for w in HUMAN_WORDS):
+        intent = "human"
+    elif any(w in q for w in AVAILABILITY_WORDS):
+        intent = "availability"
+    elif any(w in q for w in PRICE_WORDS):
+        intent = "price"
+    else:
+        intent = "unknown"
+
+    with db() as conn, conn.transaction():
+        lead = get_lead_in_tenant(conn, body.lead_id, tenant)
+        who = lead["name"] or f"lead {lead['id']}"
+
+        if intent == "human":
+            h = create_handoff(conn, tenant, lead["id"], "customer_requested_human",
+                               f"{who} asked to speak to a person about {code}.")
+            return {"answer": "Sure, a colleague will contact you shortly.", "citation": None,
+                    "handoff": True, "handoff_id": h["id"], "intent": intent}
+
+        facts = []
+        if intent in ("price", "availability"):
+            facts = conn.execute(
+                "SELECT id, value, source FROM property_facts "
+                "WHERE tenant_id = %s AND property_code = %s AND field = %s",
+                (tenant, code, intent),
+            ).fetchall()
+        values = {f["value"] for f in facts if f["value"] is not None}
+
+        # Answer ONLY when exactly one confirmed value exists. Missing, NULL
+        # (unknown) or conflicting facts -> say so and hand off. Never guess.
+        if len(values) == 1:
+            fact = next(f for f in facts if f["value"] is not None)
+            return {"answer": f"The {intent} of {code} is {fact['value']}.",
+                    "citation": {"fact_id": fact["id"], "source": fact["source"],
+                                 "property_code": code, "field": intent},
+                    "handoff": False, "handoff_id": None, "intent": intent}
+
+        reason = "conflicting_fact" if len(values) > 1 else f"no_confirmed_{intent}"
+        h = create_handoff(conn, tenant, lead["id"], reason,
+                           f"{who} asked about {intent} of {code}; no confirmed fact. Question: {body.question[:200]}")
+        return {"answer": NO_INFO, "citation": None, "handoff": True,
+                "handoff_id": h["id"], "intent": intent}
+
+
+class HandoffIn(BaseModel):
+    lead_id: int
+    reason: str
+    summary: str
+
+
+@app.post("/handoffs")
+def post_handoff(body: HandoffIn, user: dict = Depends(any_user)):
+    with db() as conn, conn.transaction():
+        get_lead_in_tenant(conn, body.lead_id, user["tenant_id"])   # tenant check
+        return create_handoff(conn, user["tenant_id"], body.lead_id, body.reason, body.summary)
+
+
+# ---------------------------------------------------------------- alerts (internal)
+class AlertIn(BaseModel):
+    source: str
+    message: str
+
+
+@app.post("/alerts")
+def post_alert(body: AlertIn, x_internal_token: str | None = Header(default=None)):
+    """SECURITY: internal-only. Uses a separate shared secret (not a user token),
+    compared in constant time to avoid timing leaks."""
+    if not x_internal_token or not hmac.compare_digest(x_internal_token, INTERNAL_ALERT_TOKEN):
+        raise HTTPException(status_code=401, detail="invalid internal token")
+    with db() as conn, conn.transaction():
+        row = conn.execute(
+            "INSERT INTO alerts (source, message) VALUES (%s, %s) RETURNING *",
+            (body.source[:100], body.message[:2000]),
+        ).fetchone()
+    log.error("ALERT from %s: %s", body.source, body.message[:200])
+    return row
+
+
+# ---------------------------------------------------------------- TEST-ONLY debug endpoints
+def require_fail_injection_enabled():
+    if not ENABLE_FAIL_INJECTION:
+        raise HTTPException(status_code=404, detail="not found")
+
+
+@app.post("/_debug/fail-next", dependencies=[Depends(require_fail_injection_enabled)])
+def debug_fail_next(count: int, user: dict = Depends(admin_only)):
+    """TEST ONLY: next `count` upsert calls return 500. Also resets the attempt counter."""
+    with _fail_lock:
+        _fail_state["fail_next"] = max(0, count)
+        _fail_state["upsert_attempts"] = 0
+    log.warning("fail injection armed: next %s upserts will 500", count)
+    return dict(_fail_state)
+
+
+@app.get("/_debug/stats", dependencies=[Depends(require_fail_injection_enabled)])
+def debug_stats(user: dict = Depends(admin_only)):
+    with _fail_lock:
+        return dict(_fail_state)
